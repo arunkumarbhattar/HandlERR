@@ -18,7 +18,9 @@
 #include <llvm/Analysis/CFG.h>
 #include <llvm/IR/LLVMContext.h>
 #include <set>
-
+#include "llvm/Analysis/CallGraph.h"
+#include <unordered_set>
+#include <queue>
 
 using namespace llvm;
 
@@ -95,26 +97,26 @@ namespace HSS {
           if(isa<CallInst>(I))
 	  {
 		const CallInst *CI = dyn_cast<CallInst>(I);
-		Function* CalledFunction = CI->getFunction();
+		Function* CalledFunction = const_cast<Function*>(CI->getFunction());
 		dbgs() << "[+] One of the caller function of:" 
 		       << TF->getName().str() << "is: "<<CalledFunction->getName().str()
                        <<"\n";
-		std::map<Function *, std::set<Instruction *>>::iterator *it;
-		*it = CallInsts.find(CalledFunction);
-	        if(it!=CallInsts.end())
+		std::map<Function *, std::set<Instruction *>>::iterator it;
+		it = CallerInsts.find(CalledFunction);
+	        if(it!=CallerInsts.end())
                 {
 		    //add this instruction to the existing instruction set
-                    std::set<Instruction*> *temp = (*it)->second;
-		    *temp.insert(I);
+                    std::set<Instruction*> temp = it->second;
+		    temp.insert(I);
 		    //now insert this into map 
-		    *it->second = *temp; 
+		    it->second = temp; 
                 }
 		else
 		{
 		    std::set<Instruction* > temp;
-		    temp.insert(CallInst);
+		    temp.insert(I);
 		    //create a new pair
-		    CallInsts.insert(std::make_pair(CalledFunction,CallInst); 
+		    CallerInsts.insert(std::make_pair(CalledFunction,temp)); 
 		}
 	  }
         }
@@ -128,22 +130,24 @@ namespace HSS {
         // If the current function is not an external function?
         // populate ReachableFuncs with the function.
         // TODO: fill your code here.
-	if(CF->IsDeclaration())
+	if(CF->isDeclaration())
 	   ReachableFuncs.insert(CF);
         
         // Find all the functions called from GN,
         // i.e., all the edges from GN and call computeReachableFunctions on the reached node.
         // TODO: Fill your code here.
 	
-	for(std::vector<CallRecord>::iterator itr = GN->begin(), itr_end = GN->end(); itr != itr_end; ++itr)
+	for(CallGraphNode::iterator itr = GN->begin(); itr != GN->end(); ++itr)
 	{
 	  //CallRecord is a pair --> std::pair<WeakTrackingVH>, CallGraph Node*>
 	  //we shall pick the second field and pass it on as argument to a new computeReachableFunctions call
           //provided the 2nd field (CallGraphNode*) points to a valid called function
 	  if(itr->second != NULL)
 	  {
-          	CallGraphNode *CalledFunctionNode = itr->second();
-                computeReachableFunctions(CalledFunctionNode, Visited);
+          	itr->second->dump();
+                CallGraphNode *CalledFunctionNode = (itr->second);
+                if(CalledFunctionNode != NULL)
+                   computeReachableFunctions(CalledFunctionNode, Visited);
 	  }
 	}
       }
@@ -189,7 +193,7 @@ namespace HSS {
           // this can be done by walking through the successors
 	  std::unordered_set<BasicBlock* >reachable;
 	  std::queue<BasicBlock *> worklist;
-	  worklist.insert(CurBB);
+	  worklist.push(&CurBB);
           while(!worklist.empty()) 
 	  {
 	     BasicBlock *front = worklist.front();
@@ -197,13 +201,13 @@ namespace HSS {
              for(BasicBlock *succ : successors(front)) {
 		if(reachable.count(succ) == 0) {
 		   worklist.push(succ);
-		   reachable.push(succ);
+		   reachable.insert(succ);
 		}
 	     }
 	  }
 
           std::unordered_set<BasicBlock* >::const_iterator itr 
-          = reachable.find(CurBB);
+          = reachable.find(&CurBB);
 
          if(itr != reachable.end())
 	   return true;
@@ -213,9 +217,9 @@ namespace HSS {
             dbgs() << "[+] Trying to insert call into basic block:" << CurBB.getName().str() << "\n";
             // Insert call to exit function.
             // TODO: fill this.
-            Value *MinusOne = ConstantInt::get(Type::getInt32Ty(Context), -1);
-            BasicBlock::iterator I = CurBB->getFirstInsertionPt();
-            ReturnInst::Create(CurBB->getContext(), MinusOne, *I);   
+            Value *MinusOne = ConstantInt::get(Type::getInt32Ty(CurBB.getContext()), -1);
+            BasicBlock::iterator I = CurBB.getFirstInsertionPt();
+            ReturnInst::Create(CurBB.getContext(), MinusOne, &(*I));   
             Edited = true;
           }
         }
